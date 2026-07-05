@@ -12,6 +12,7 @@ documents takes hours. This bot does it in seconds.
 - Stays strictly within compliance and risk scope
 - Admits when it doesn't have enough information
 - Structured responses with policy area, answer, source and confidence level
+- Powered by CFPB UDAAP Examination Manual
 
 ## Tech Stack
 - Python
