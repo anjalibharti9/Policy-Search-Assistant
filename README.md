@@ -60,3 +60,37 @@ An earlier version of this pipeline chunked text on a per-page basis (preserving
 ### Planned resolution
 
 Revisit with **recursive or semantic chunking** (splitting on paragraph/sentence boundaries rather than raw character counts) combined with **lightweight page-tracking metadata** — this would solve both problems at once: natural chunk boundaries (no more mid-sentence cuts) and traceability (page-level citations), without reintroducing the "hard split at every page edge" problem that per-page chunking caused. Deferred to a later iteration once the core retrieval pipeline (Steps 6.4–6.5) is working end to end.
+
+## Vector Store & Similarity Search
+
+- **Vector store**: Originally planned to use ChromaDB, but hit a persistent native
+  access-violation crash (`0xC0000005`) in `collection.add()` on Windows (VS Code +
+  Jupyter, Python 3.12). Older chromadb versions requiring `chroma-hnswlib` built from
+  source were also blocked by missing MS Visual C++ Build Tools. Switched to **FAISS**
+  instead — avoids the native library issue and offers deeper learning value (lower-level
+  API exposes vector search internals directly, vs. Chroma's managed abstraction).
+
+- **Similarity metric**: Embeddings are L2-normalized (`faiss.normalize_L2()`) before
+  indexing, and searched using `IndexFlatIP` (inner product). Inner product on
+  unit-normalized vectors is mathematically equivalent to cosine similarity, which is
+  the standard metric for text embeddings — embedding models encode semantic meaning
+  in vector *direction*, not magnitude, so cosine (angle-based) similarity aligns with
+  how the model was trained, unlike Euclidean (`IndexFlatL2`) distance which is
+  magnitude-sensitive. Any future query embedding must also be normalized before
+  search to preserve this equivalence.
+
+- **Index type**: Using `IndexFlatL2`/`IndexFlatIP` — brute-force exact search, no
+  approximation. Appropriate at current scale (63 chunks); would need an approximate
+  index (IVF, HNSW) with a training step at production scale.
+
+- **No per-chunk metadata**: Chunks are stored with no source/document tagging (e.g.
+  no `source: CFPB_UDAAP.pdf` field). Fine with a single source document; will need
+  metadata once multiple policy PDFs are indexed — planned for the Advanced RAG phase.
+
+- **In-memory chunk-to-text mapping**: FAISS only stores vectors and returns index
+  positions, not text. A plain Python dict (`chunk_id_to_text`) maps FAISS index
+  positions back to original chunk text, relying on stable insertion order from a
+  single batched `index.add()` call. This mapping is not yet persisted to disk and
+  would break if chunks were later added/removed incrementally rather than as one
+  batch — acceptable for v1, worth revisiting if the pipeline moves to incremental
+  indexing.
