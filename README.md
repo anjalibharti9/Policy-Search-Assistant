@@ -170,3 +170,9 @@ This resolved the issue consistently.
 output-structure requirements are more reliably enforced when reinforced per-turn,
 especially in multi-turn chat sessions where the system instruction is set once at
 session creation and may get deprioritized relative to the live conversation turn.
+
+**Score comparison**: on-topic query scored 0.74–0.78; off-topic query scored
+0.58–0.61. The ~0.15 gap suggests similarity scores could serve as a usable signal
+for a future relevance threshold (e.g. reject retrieval below ~0.65), even without
+building a full reranker — a lightweight improvement worth testing before the
+reranker phase of the roadmap.
