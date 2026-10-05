@@ -36,6 +36,48 @@ This project is being built in intentional layers — starting with hand-rolled,
 - **Vector store**: Local ChromaDB, suitable for single-user/local demo. Production considerations (e.g. Pinecone, Weaviate) would apply at scale.
 - **Retrieval**: Pure vector similarity search. Planned improvement: hybrid retrieval (keyword + vector) for exact regulatory term matching, which pure semantic similarity can miss.
 
+## Pipeline Overview (Steps 1–6)
+
+**Step 1 — Chat loop**: Basic interactive loop using `client.chats.create()` and
+`chat.send_message()` in a `while True` loop, reading user input and printing model
+responses until an exit keyword (`end`/`quit`/`bye`/`goodbye`).
+
+**Step 2 — Memory**: Multi-turn conversation handled via Gemini's native `chats`
+session object, which persists conversation history across turns automatically.
+
+**Step 3 — System prompt**: Role-prompted the model as a senior compliance officer,
+combining role prompting, chain-of-thought, constraint prompting, few-shot examples,
+and a fixed output format. Initial version (`chat`) embedded the entire source
+document directly into the system instruction — functional for a single small PDF,
+but not scalable (see Step 6).
+
+**Step 4 — GitHub setup**: Repo initialized with a `master` branch; workflow is to
+edit locally in VS Code only, never directly on GitHub, to avoid merge conflicts.
+
+**Step 5 — PDF loading**: CFPB UDAAP PDF parsed via `pypdf`, with all pages flattened
+into a single string (`document_text`) using `reader.pages` + `extract_text()`.
+
+**Step 6 — True RAG (embeddings + vector search)**:
+- **6.1–6.3**: Document split into fixed-size chunks (chunk_size=800, overlap=100 →
+  63 chunks); each chunk embedded via `gemini-embedding-001` (3072 dimensions).
+- **6.4**: Embeddings indexed in **FAISS** (switched from ChromaDB after a persistent
+  native crash on Windows). Vectors L2-normalized and indexed with `IndexFlatIP`, so
+  inner product search is equivalent to cosine similarity. Index and a
+  `chunk_id_to_text` mapping persisted to disk (`faiss_index/`).
+- **6.5**: `search_policy()` embeds a query, normalizes it, searches the FAISS index,
+  and returns the top-k matching chunks with similarity scores — validated against a
+  real UDAAP question with relevant results.
+- **6.6**: `generate_rag_response()` retrieves top-k chunks per query and passes them
+  to a dedicated chat session (`chat_rag`) whose system instruction no longer embeds
+  the full document — only the rules and output format. This replaces the Step 3
+  approach of stuffing the entire document into context, making the pipeline scalable
+  to multiple/larger policy documents.
+
+**Key shift**: Steps 1–5 (and the original Step 3 `chat`) relied on the model seeing
+the *entire* document on every turn. Step 6 moves to retrieval-augmented generation —
+only the most relevant excerpts are retrieved and passed per-query, which is the
+core architectural difference between "an LLM with a document pasted in" and "RAG."
+
 ## Known Limitations — Chunking Strategy (v1)
 
 **Current approach:** Fixed-size character chunking (800 chars, 100 char overlap) applied to the full document text, flattened across all pages into a single string before splitting.
@@ -112,3 +154,19 @@ plain semantic similarity — broad/introductory text can rank highly by touchin
 topics shallowly, even when a narrower chunk is more precisely on-point. Addressing
 this (e.g. via hybrid retrieval or reranking) is noted as a future improvement in
 `LIMITATIONS.md` rather than solved in v1.
+
+## Prompt Engineering: System Instruction vs. User-Turn Reinforcement
+
+Initially, the output format (`Policy Area / Answer / Source / Confidence`) was defined
+only in the system instruction. In practice, gemini-2.5-flash did not reliably follow
+this format — responses came back as unstructured prose despite the system prompt
+explicitly requiring it.
+
+**Fix**: the format requirement was repeated in the user-turn prompt itself (alongside
+the retrieved context and question), not just stated once in the system instruction.
+This resolved the issue consistently.
+
+**Takeaway**: system instructions set persistent behavior/role, but formatting and
+output-structure requirements are more reliably enforced when reinforced per-turn,
+especially in multi-turn chat sessions where the system instruction is set once at
+session creation and may get deprioritized relative to the live conversation turn.
