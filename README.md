@@ -94,3 +94,21 @@ Revisit with **recursive or semantic chunking** (splitting on paragraph/sentence
   would break if chunks were later added/removed incrementally rather than as one
   batch — acceptable for v1, worth revisiting if the pipeline moves to incremental
   indexing.
+
+## Retrieval Validation
+
+Tested retrieval with the query *"What counts as an unfair act under UDAAP?"* against
+the 63-chunk FAISS index (cosine similarity via L2-normalized vectors + IndexFlatIP).
+
+Top 3 results:
+1. **Chunk 0** (score 0.78) — UDAAP overview/introduction section
+2. **Chunk 3** (score 0.76) — the actual three-part legal test for "unfair" acts
+   (direct answer to the query)
+3. **Chunk 8** (score 0.74) — footnote elaborating on the unfairness standard
+
+**Observation**: the most directly relevant chunk (the legal test itself) scored
+slightly lower than the general overview chunk. This reflects a known limitation of
+plain semantic similarity — broad/introductory text can rank highly by touching many
+topics shallowly, even when a narrower chunk is more precisely on-point. Addressing
+this (e.g. via hybrid retrieval or reranking) is noted as a future improvement in
+`LIMITATIONS.md` rather than solved in v1.
