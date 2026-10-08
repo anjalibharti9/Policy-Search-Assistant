@@ -1,11 +1,11 @@
 # Internal Policy Search Assistant
 
-A RAG-based AI chatbot that allows compliance and risk teams to query
-internal policy documents in plain English and get accurate, cited answers instantly.
+A RAG-based AI chatbot that allows compliance and risk teams to query internal policy documents in plain English and get source-quoted answers.
 
 ## Problem Statement
-Finding specific policy answers across hundreds of pages of compliance
-documents takes hours. This bot does it in seconds.
+Finding specific policy answers in long compliance documents is slow and
+manual. This bot retrieves the most relevant passages and answers from them
+in plain English.
 
 ## Features
 - Conversational Q&A interface with memory
@@ -21,6 +21,17 @@ documents takes hours. This bot does it in seconds.
 - FAISS (vector search)
 - pypdf (PDF parsing)
 - Jupyter Notebook
+
+## Setup
+
+1. Install dependencies: `pip install -r requirements.txt`
+2. Create a Gemini API key in Google AI Studio. In the project folder, create
+   a file named `.env` containing one line: `GEMINI_API_KEY=your-key-here`
+   (this file is gitignored and never uploaded).
+3. Open `compliance_bot.ipynb` and run all cells from top to bottom. This
+   parses the PDF, creates the chunks and embeddings, and builds the FAISS
+   index (saved to `faiss_index/`).
+4. Ask questions in the chat cell at the end of the notebook.
 
 ## Project Status
 ✅ Core RAG pipeline complete (Steps 1–6): chat loop, memory, system prompt,
