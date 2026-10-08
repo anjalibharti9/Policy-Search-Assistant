@@ -14,6 +14,19 @@ in plain English.
 - Structured responses with policy area, answer, source and confidence level
 - Powered by CFPB UDAAP Examination Manual
 
+## Example
+
+**Question:** What counts as an unfair act under UDAAP?
+
+```
+Policy Area: UDAAP (Unfair Acts)
+Answer: An act or practice is considered unfair under UDAAP when it causes or is likely to cause substantial injury to consumers, the injury is not reasonably avoidable by consumers, and the injury is not outweighed by countervailing benefits to consumers.
+Source: "Act is that an act or practice is unfair when: (1) It causes or is likely to cause substantial injury to consumers; (2) The injury is not reasonably avoidable by consumers; and" and "• The injury must not be outweighed by countervailing benefits to consum"
+Confidence: High
+```
+
+Retrieved chunks: 0, 3, 8 (similarity scores 0.78, 0.76, 0.74)
+
 ## Tech Stack
 - Python
 - Google Gemini API (gemini-2.5-flash, gemini-embedding-001)
