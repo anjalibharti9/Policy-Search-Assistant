@@ -8,7 +8,7 @@ manual. This bot retrieves the most relevant passages and answers from them
 in plain English.
 
 ## Features
-- Conversational Q&A interface with memory
+- Retrieval-augmented Q&A over a policy document (each question answered independently, no conversation memory)
 - Stays strictly within compliance and risk scope
 - Admits when it doesn't have enough information
 - Structured responses with policy area, answer, source and confidence level
@@ -19,9 +19,9 @@ in plain English.
 **Question:** What counts as an unfair act under UDAAP?
 
 ```
-Policy Area: UDAAP (Unfair Acts)
-Answer: An act or practice is considered unfair under UDAAP when it causes or is likely to cause substantial injury to consumers, the injury is not reasonably avoidable by consumers, and the injury is not outweighed by countervailing benefits to consumers.
-Source: "Act is that an act or practice is unfair when: (1) It causes or is likely to cause substantial injury to consumers; (2) The injury is not reasonably avoidable by consumers; and" and "• The injury must not be outweighed by countervailing benefits to consum"
+Policy Area: UDAAP
+Answer: An act or practice is considered unfair when it causes or is likely to cause substantial injury to consumers, the injury is not reasonably avoidable by consumers, and the injury is not outweighed by countervailing benefits to consumers.
+Source: "Act is that an act or practice is unfair when: (1) It causes or is likely to cause substantial injury to consumers; (2) The injury is not reasonably avoidable by consumers; and (3) The injury must not be outweighed by countervailing benefits to consum"
 Confidence: High
 ```
 
@@ -44,7 +44,12 @@ Retrieved chunks: 0, 3, 8 (similarity scores 0.78, 0.76, 0.74)
 3. Open `compliance_bot.ipynb` and run all cells from top to bottom. This
    parses the PDF, creates the chunks and embeddings, and builds the FAISS
    index (saved to `faiss_index/`).
-4. Ask questions in the chat cell at the end of the notebook.
+4. To ask your own question, add a new cell at the end of the notebook and run:
+
+```python
+   answer, sources = generate_rag_response("Your question here", index, chunk_id_to_text, client, system_instruction_rag)
+   print(answer)
+```
 
 ## Project Status
 ✅ Core RAG pipeline complete (Steps 1–6): chat loop, memory, system prompt,
@@ -97,12 +102,14 @@ into a single string (`document_text`) using `reader.pages` + `extract_text()`.
   the FAISS index, and returns the top-k matching chunks with similarity scores —
   validated against a real UDAAP question with relevant results (see Retrieval
   Validation).
-- **6.6 — Generation**: `generate_rag_response()` retrieves top-k chunks per query
-  and passes them to a dedicated chat session (`chat_rag`) whose system instruction
-  no longer embeds the full document — only the rules and output format. This
-  replaces the Step 3 approach of stuffing the entire document into context,
-  making the pipeline scalable to multiple/larger policy documents. Hit and fixed
-  a structured-output formatting bug along the way (see Prompt Engineering below).
+- **6.6 — Generation**: `generate_rag_response()` retrieves the top-k chunks per
+  query and sends them, together with the question, to Gemini (`generate_content`)
+  under a system instruction (`system_instruction_rag`) that contains only the rules
+  and output format, not the full document. This replaces the Step 3 approach of
+  stuffing the entire document into context, making the pipeline scalable to
+  multiple/larger policy documents. Each query is answered independently, with no
+  conversation memory. A structured-output formatting issue came up along the way
+  (see Prompt Engineering below).
 - **6.7 — Eval pass**: Tested an out-of-scope query to confirm the bot refuses to
   hallucinate rather than answering from general knowledge (see Retrieval
   Validation).
@@ -177,12 +184,11 @@ than solved in v1.
 **Off-topic eval test** — query: *"What is the minimum credit score required for a
 mortgage under this policy?"* (not covered by the UDAAP document).
 
-Result: the bot correctly responded "the provided context does not contain
-information about the minimum credit score required for a mortgage," with High
-confidence — rather than answering from Gemini's general training knowledge of
-typical mortgage underwriting, which it almost certainly has. This confirms the
-grounding instruction holds even under pressure from a plausible-sounding,
-adjacent-domain question.
+Result: the bot correctly responded "This information is not available in the
+provided document," with Source "N/A" and High confidence — rather than answering
+from Gemini's general training knowledge of typical mortgage underwriting, which
+it almost certainly has. This confirms the grounding instruction holds even under
+pressure from a plausible-sounding, adjacent-domain question.
 
 Retrieved chunks for this query: 60, 48, 56 — FAISS still returns top-k chunks
 regardless of relevance (it has no built-in "no good match" concept), so scores
@@ -211,6 +217,13 @@ system instruction. This resolved the issue consistently.
 output-structure requirements are more reliably enforced when reinforced per-turn,
 especially in multi-turn chat sessions where the system instruction is set once at
 session creation and may get deprioritized relative to the live conversation turn.
+
+**Current implementation**: `generate_rag_response()` now calls `generate_content`
+(single-turn) with `system_instruction_rag` passed as the system instruction, and
+the output format is still repeated in the user-turn prompt. The formatting drift
+described above was observed in the earlier chat-session version
+(`chat_rag.send_message()`). Whether the per-turn reinforcement is still necessary
+in the single-turn version has not been tested.
 
 ---
 
