@@ -47,8 +47,8 @@ Retrieved chunks: 0, 3, 8 (similarity scores 0.78, 0.76, 0.74)
 4. To ask your own question, add a new cell at the end of the notebook and run:
 
 ```python
-   answer, sources = generate_rag_response("Your question here", index, chunk_id_to_text, client, system_instruction_rag)
-   print(answer)
+answer, sources = generate_rag_response("Your question here", index, chunk_id_to_text, client, system_instruction_rag)
+print(answer)
 ```
 
 ## Project Status
