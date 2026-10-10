@@ -185,7 +185,7 @@ than solved in v1.
 mortgage under this policy?"* (not covered by the UDAAP document).
 
 Result: the bot correctly responded "This information is not available in the
-provided document," with Source "N/A" and High confidence — rather than answering
+provided document," with High confidence — rather than answering
 from Gemini's general training knowledge of typical mortgage underwriting, which
 it almost certainly has. This confirms the grounding instruction holds even under
 pressure from a plausible-sounding, adjacent-domain question.
