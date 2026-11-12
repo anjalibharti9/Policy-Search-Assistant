@@ -1,0 +1,68 @@
+{
+  "queries": [
+    {
+      "id": "q1",
+      "type": "direct",
+      "query": "What counts as an unfair act under UDAAP?"
+    },
+    {
+      "id": "q2",
+      "type": "direct",
+      "query": "How does UDAAP define an abusive practice?"
+    },
+    {
+      "id": "q3",
+      "type": "vague",
+      "query": "Can we hide fees in the fine print?"
+    },
+    {
+      "id": "q4",
+      "type": "vague",
+      "query": "Is it okay to pressure customers into signing up quickly?"
+    },
+    {
+      "id": "q5",
+      "type": "mismatch",
+      "query": "What makes a disclosure misleading to a reasonable consumer?"
+    },
+    {
+      "id": "q6",
+      "type": "out_of_scope",
+      "query": "What is the minimum credit score for a mortgage?"
+    }
+  ],
+  "relevant": {
+    "q1": [
+      3,
+      4
+    ],
+    "q2": [
+      33,
+      34
+    ],
+    "q3": [
+      19,
+      27,
+      53
+    ],
+    "q4": [
+      33
+    ],
+    "q5": [
+      18,
+      22
+    ],
+    "q6": []
+  },
+  "anchors": {
+    "3": " Act are similar to those under Sec. 5 of the Federal Trade ",
+    "4": "arm includes, for  example, costs or fees paid by consumers ",
+    "33": "he ability of a consumer to understand a term or condition o",
+    "34": "dentifying Unfair,  Deceptive, or Abusive Acts or Practices ",
+    "19": "the consumer is directed away from qualifying  limitations i",
+    "27": "e lease.  In addition, the FTC required that if the companie",
+    "53": "es in terms  and conditions of the product or service.  f. A",
+    "18": "en misled.  Instead, an act or practice may be deceptive if ",
+    "22": "tations or marketing practices target a specific audience, s"
+  }
+}
