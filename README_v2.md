@@ -1,6 +1,6 @@
 # Policy Search Assistant v2 (Advanced RAG): Step 7 Build Log
 
-CFPB UDAAP RAG bot. This file covers the v2 work (Step 7) up to the multi-query evaluation (7A.3): the plan, decisions, evaluation results, errors, fixes and open questions. The original v1 (Steps 1-6) is preserved under the git tag `v1-faiss`.
+CFPB UDAAP RAG bot. This file covers the v2 work (Step 7) up to the multi-query evaluation (7A.3) and its diagnostic: the plan, decisions, evaluation results, errors, fixes and open questions. The original v1 (Steps 1-6) is preserved under the git tag `v1-faiss`.
 
 ## 1. Where things stand
 
@@ -11,7 +11,8 @@ CFPB UDAAP RAG bot. This file covers the v2 work (Step 7) up to the multi-query 
 | 7A.1 Baseline eval | Done: Hit@5 4/5, MRR 0.600 (labels in `eval_set.json`) |
 | 7A.2 Variant generation | Done: 3 clean variants per query, all 18 generated with `gemini-3.5-flash-lite` and saved in `query_variants.json` |
 | 7A.3 Multi-query + RRF | Done: Hit@5 4/5, MRR 0.500. Did not beat the baseline on this small eval set (see section 5) |
-| Next | Side-by-side diagnostic of baseline vs multi-query rankings, then HyDE (7A.4) and the comparison (7A.5) |
+| 7A.3b Diagnostic | Done: q3/q5 drops traced to near-tied RRF scores; weighting the original query dropped; q4 label checked (weak, inferred, kept as is). See sections 5 and 7 |
+| Next | HyDE (7A.4) and the three-way comparison (7A.5); add more vague eval queries; add answer generation to v2 |
 
 ## 2. Step 7 plan and decisions
 
@@ -76,11 +77,64 @@ Six test queries: 2 direct, 2 vague, 1 mismatch, 1 out of scope. Labels were cho
 
 **Reading of the result**
 
-- Multi-query did not beat the baseline on this 5-query set. The sample is tiny (two queries each dropping one rank moves MRR by 0.1), so this is "has not helped yet", not proof that it hurts.
+- Multi-query did not beat the baseline on this 5-query set. The sample is tiny (q3 and q5 each lost 0.5 of reciprocal rank (0.1 of MRR) and q1 gained 0.5, a net change of -0.1), so this is "has not helped yet", not proof that it hurts.
 - q1 improved: one variant used "substantial injury" and "reasonable consumer avoidability", the exact elements of the unfairness test in chunks 3 and 4.
 - q4 stayed a miss. The variants used "high-pressure", "coercive" and "deceptive" wording, none said "abusive" or "unreasonable advantage", and the top 5 filled with deception chunks (20, 2, 22, 0, 47); chunk 33 never appeared. Rewriting can steer a query away from the document's vocabulary as easily as toward it.
-- Why q3 and q5 dropped is a hypothesis, not a finding: RRF rewards chunks that several variants agree on, so a chunk ranked #1 for the original wording may be outvoted. The ranked lists need to be inspected before drawing a conclusion.
+- **Why q3 and q5 dropped (diagnosed with a no-API side-by-side cell, using cached variants).** My first guess was that variants outranked the original's best chunk. That was only partly right. The cause is how RRF scores:
+  - q3: chunk 53 was top-1 for the original and ranked 2 and 1 in two variants, but was missing from variant 3's top 10, which cost it about a third of its score. Chunk 21 appeared in all four lists at moderate ranks and won (0.0626).
+  - q5: a near-tie. Chunk 21 scored 0.0640 and chunk 22 scored 0.0629, so a 0.001 gap flipped the order.
+  - The top-5 RRF scores sit within about 0.002 of each other, so RRF mostly counts how many lists a chunk appears in, and small swaps are expected.
+  - Chunk 21 tops the fused list for both q3 and q5. Its text has not been inspected yet.
+- **Weighting the original query more in RRF would not help.** A rough estimate from the printed scores puts the weight needed for chunk 53 to beat chunk 21 at about 8-12x per variant, which is close to turning multi-query off. q4 cannot be fixed this way either, because chunk 33 is not in the original's top 10.
+- **Possible benefit: candidate recall.** Multi-query found chunks the baseline missed (q4's chunk 33 at fused rank 6, q1's chunk 4 at fused rank 12). Hand-calculated from the ranked lists:
+
+| Metric (5 queries) | Baseline | Multi-query |
+|---|---|---|
+| Recall@5 | 0.600 | 0.633 |
+| Recall@10 | 0.700 | 0.900 |
+| Recall@5, excluding q4 | 0.750 | 0.792 |
+| Recall@10, excluding q4 | 0.875 | 0.875 |
+
+- The Recall@10 gain comes entirely from q4, whose label is inferred. Excluding q4, top-10 recall is identical. There is no evidence yet that multi-query improves the top 5. It may work as a candidate generator for the 7B reranker, which is a hypothesis to test, not a finding.
 - The out-of-scope query q6 scored 0.065 under RRF (maximum possible 0.066): its rewritten variants all agreed on the same chunk. Agreement across variants is not relevance, so RRF scores cannot flag off-topic queries.
+
+## 5b. HyDE (7A.4) and the four-way comparison
+
+**Design**
+
+- For each query, `gemini-3.5-flash-lite` (temperature 0.3, thinking level minimal) writes a short passage (80-120 words) in the formal style of the CFPB manual that would answer the question. The passage is embedded and searched in FAISS (top 10) in place of the question.
+- Passages are cached in `hyde_cache.json`: 6 `generate_content` calls in total, none repeated on re-runs.
+- The output was clean (plain prose, 112-126 words, no headings or list markers), so no cleaning code was needed.
+- Two HyDE methods were scored: HyDE alone, and original + HyDE fused with the same RRF as multi-query (k = 60, two lists).
+- Quota: the AI Studio usage page shows free-tier limits of 15 requests per minute and 500 per day for this model. The 20-per-day cap in section 6 (#4) was specific to `gemini-2.5-flash`. The usage page can lag, so every LLM output is still cached.
+
+**Results**
+
+| Method | Hit@5 | MRR | MRR without q4 | Recall@5 | Recall@10 |
+|---|---|---|---|---|---|
+| baseline | 4/5 | 0.600 | 0.750 | 0.600 | 0.700 |
+| multi-query | 4/5 | 0.500 | 0.625 | 0.633 | 0.900 |
+| HyDE alone | 4/5 | 0.567 | 0.708 | 0.733 | 0.733 |
+| original + HyDE (RRF) | 4/5 | 0.800 | 1.000 | 0.633 | 0.800 |
+
+The baseline and multi-query rows reproduced the earlier numbers, which confirms the comparison code matches.
+
+| Query | Baseline rr | Multi-query rr | HyDE rr | Original + HyDE rr |
+|---|---|---|---|---|
+| q1 | 0.50 | 1.00 | 0.33 | 1.00 |
+| q2 | 0.50 | 0.50 | 1.00 | 1.00 |
+| q3 | 1.00 | 0.50 | 0.50 | 1.00 |
+| q4 | 0.00 | 0.00 | 0.00 | 0.00 |
+| q5 | 1.00 | 0.50 | 1.00 | 1.00 |
+
+**Reading of the result**
+
+- **No method fixes q4.** The HyDE passage used "unfair, deceptive, or abusive" and "material costs, risks, or conditions", wording close to chunk 33, but chunk 33 still ranked outside the top 10. Retrieval preferred deception and overview chunks (41, 2, 34).
+- **HyDE alone does not beat the baseline on MRR (0.567 vs 0.600).** It improved q2 (chunk 33 from rank 2 to rank 1) and put both q1 chunks in the top 5. It hurt q3: chunk 27 fell out of the top 10 and chunk 53 dropped from rank 1 to rank 2. It has the highest Recall@5 (0.733), so it gets more relevant chunks into the top 5 even when the first hit ranks lower.
+- **Original + HyDE has the best MRR, but the margins are narrow.** By hand arithmetic from the printed ranks (not code output), q2 comes down to chunk 33 at 0.03252 against chunk 0 at 0.03227, a gap of about 0.0003. q1 is also narrow. q3 and q5 look solid. This is the same kind of near-tie that cost multi-query its q3 and q5 ranks. The data supports carrying this method forward and nothing stronger.
+- **HyDE cosine scores run higher for every query, so they cannot be compared with baseline scores.** They compare a passage with a chunk, not a question with a chunk. For the out-of-scope q6, the top score rose from 0.541 to 0.705. The gap between q6 and the weakest in-scope query is about the same (about 0.061 baseline, 0.057 HyDE, by hand arithmetic), so a score threshold still would not separate them. The q6 passage also confidently describes what the manual says about credit scores, which it does not cover.
+- **Possible advantage from model memory.** The CFPB manual is public, so the model may partly remember its wording. HyDE may look better here than it would on a private internal policy.
+- **The eval set is now the main limit.** With 5 labeled queries, the differences between methods are about one rank on one query. More vague queries are needed before any method is declared the winner
 
 ## 6. Errors, causes and fixes
 
@@ -100,6 +154,8 @@ Six test queries: 2 direct, 2 vague, 1 mismatch, 1 out of scope. Labels were cho
 
 - **Overview chunk crowds out precise chunks.** Chunk 0 (the intro) outranks the chunks holding the actual definitions for q1 and q2. This is the target for reranking (7B).
 - **q4 is a real miss, and the document has no direct coverage of high-pressure sales.** Keyword searches for "pressure", "urgent" and "take advantage" returned nothing. The closest text is chunk 33 (abusive = takes unreasonable advantage), so the q4 label is inferred and is stated as such.
+  - Label check: I read the full text of chunk 33, the baseline's top 3 (22, 52, 28) and multi-query's top 2 (20, 2). None mentions pressure or urgency. Chunk 33 is the closest, but a reader has to reason from "unreasonable advantage" to "pressure"; the passage does not say it. Chunks 3 and 4 (the unfairness test) were not re-read in this check.
+  - Decision: keep the label as [33], flagged as weak and inferred, and report metrics with and without q4. Rewrite q4 only when the new vague queries are added, so the eval set does not change in the middle of a comparison.
 - **A simple score threshold would not work.** Vague but legitimate queries (q3, q4) score 0.59-0.67, barely above the out-of-scope q6 (0.53-0.54). A cutoff near 0.65 would reject real questions. A better relevance signal is needed (reranking, Corrective RAG).
 - **The eval set is small.** With 5 labeled queries one query moves MRR by 0.1-0.2. Add more vague queries before the final before/after comparison.
 - **Label correction.** Chunk 19 was first marked borderline for q3; reading the full text showed it directly addresses fine-print disclosures, so it was included.
@@ -113,15 +169,16 @@ Six test queries: 2 direct, 2 vague, 1 mismatch, 1 out of scope. Labels were cho
 4. Helpers (`call_with_retry`, `generate_query_variants` with `REWRITE_MODEL`); no test loop
 5. Prep: generate variants once, paced, saved to `query_variants.json`
 6. `multi_query_retrieve()` + RRF eval + q4 top-5 printout
+7. Diagnostic: baseline vs multi-query top 5 side by side, with labeled chunks marked; uses `search_cache.json`, no generate_content calls
 
 ## 9. Next actions
 
-1. Diagnostic cell (no API calls): print the baseline and multi-query top 5 side by side for every query, with the labeled chunks marked, to see why q3 and q5 dropped and whether q4 can be fixed.
-2. Possibly weight the original query more in RRF, then re-evaluate.
-3. HyDE (7A.4): about 6 Gemini calls, cached to disk.
-4. Compare baseline vs multi-query vs HyDE (7A.5).
-5. Add more vague queries to the eval set, and add answer generation to v2.
-6. Then 7B reranking, 7C pgvector, 7D FastAPI, 7E README, 7F Corrective RAG.
+1. HyDE (7A.4): about 6 Gemini calls, cached to disk. Billing may need to be enabled first (section 10).
+2. Compare baseline vs multi-query vs HyDE (7A.5), reporting metrics with and without q4.
+3. Add more vague queries to the eval set, then add answer generation to v2.
+4. Then 7B reranking (test multi-query as a candidate generator for it), 7C pgvector, 7D FastAPI, 7E README, 7F Corrective RAG.
+
+**Done since the last version:** side-by-side diagnostic of baseline vs multi-query; weighting the original query in RRF was considered and dropped (section 5).
 
 ## 10. Open decisions
 
@@ -130,6 +187,14 @@ Six test queries: 2 direct, 2 vague, 1 mismatch, 1 out of scope. Labels were cho
 - Which README becomes the landing page at 7E.
 
 ## 11. Changelog
+
+**v2.2**
+
+- Added the side-by-side diagnostic of baseline vs multi-query (no generate_content calls; search results cached in `search_cache.json`). It reproduced both earlier numbers (baseline MRR 0.600, multi-query 0.500), which confirms the local RRF matches `multi_query_retrieve`.
+- Replaced the q3/q5 hypothesis with the diagnosed cause: near-tied RRF scores, not variants outranking the original's best chunk. Noted that weighting the original query would not help.
+- Added the candidate-recall table (Recall@5 and @10, with and without q4) and stated that there is no evidence yet that multi-query improves the top 5.
+- Added the q4 label check to section 7: kept [33] as a weak, inferred label and decided to report metrics with and without q4.
+- Updated sections 1 and 9 to reflect the completed diagnostic and the dropped weighting idea.
 
 **v2.1**
 
