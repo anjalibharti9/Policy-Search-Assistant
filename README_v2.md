@@ -12,7 +12,8 @@ CFPB UDAAP RAG bot. This file covers the v2 work (Step 7) up to the multi-query 
 | 7A.2 Variant generation | Done: 3 clean variants per query, all 18 generated with `gemini-3.5-flash-lite` and saved in `query_variants.json` |
 | 7A.3 Multi-query + RRF | Done: Hit@5 4/5, MRR 0.500. Did not beat the baseline on this small eval set (see section 5) |
 | 7A.3b Diagnostic | Done: q3/q5 drops traced to near-tied RRF scores; weighting the original query dropped; q4 label checked (weak, inferred, kept as is). See sections 5 and 7 |
-| Next | HyDE (7A.4) and the three-way comparison (7A.5); add more vague eval queries; add answer generation to v2 |
+| 7A.4 HyDE | Done: 6 passages generated and cached in `hyde_cache.json`. HyDE alone MRR 0.567; original + HyDE MRR 0.800 but with narrow margins. q4 still a miss. See section 5b |
+| Next | Expand the eval set (more vague queries, rewrite the weak q4), re-run the four-way comparison, add answer generation to v2, then 7B reranking |
 
 ## 2. Step 7 plan and decisions
 
@@ -156,7 +157,7 @@ The baseline and multi-query rows reproduced the earlier numbers, which confirms
 - **q4 is a real miss, and the document has no direct coverage of high-pressure sales.** Keyword searches for "pressure", "urgent" and "take advantage" returned nothing. The closest text is chunk 33 (abusive = takes unreasonable advantage), so the q4 label is inferred and is stated as such.
   - Label check: I read the full text of chunk 33, the baseline's top 3 (22, 52, 28) and multi-query's top 2 (20, 2). None mentions pressure or urgency. Chunk 33 is the closest, but a reader has to reason from "unreasonable advantage" to "pressure"; the passage does not say it. Chunks 3 and 4 (the unfairness test) were not re-read in this check.
   - Decision: keep the label as [33], flagged as weak and inferred, and report metrics with and without q4. Rewrite q4 only when the new vague queries are added, so the eval set does not change in the middle of a comparison.
-- **A simple score threshold would not work.** Vague but legitimate queries (q3, q4) score 0.59-0.67, barely above the out-of-scope q6 (0.53-0.54). A cutoff near 0.65 would reject real questions. A better relevance signal is needed (reranking, Corrective RAG).
+- **A simple score threshold would not work.** Vague but legitimate queries (q3, q4) score 0.59-0.67, barely above the out-of-scope q6 (0.53-0.54). A cutoff near 0.65 would reject real questions. HyDE does not help: its scores run higher for every query, and the q6 gap to the weakest in-scope query is about the same (section 5b). A better relevance signal is needed (reranking, Corrective RAG).
 - **The eval set is small.** With 5 labeled queries one query moves MRR by 0.1-0.2. Add more vague queries before the final before/after comparison.
 - **Label correction.** Chunk 19 was first marked borderline for q3; reading the full text showed it directly addresses fine-print disclosures, so it was included.
 - **Frameworks.** Employers want evidence of using standard tools, but also an explanation of why each technique was chosen and a measured improvement. Plan: hand-built through 7E, with LlamaIndex / LangGraph used in contained places (decision pending).
@@ -170,23 +171,33 @@ The baseline and multi-query rows reproduced the earlier numbers, which confirms
 5. Prep: generate variants once, paced, saved to `query_variants.json`
 6. `multi_query_retrieve()` + RRF eval + q4 top-5 printout
 7. Diagnostic: baseline vs multi-query top 5 side by side, with labeled chunks marked; uses `search_cache.json`, no generate_content calls
+8. HyDE generation: one passage per query from `REWRITE_MODEL`, cached in `hyde_cache.json` (6 generate_content calls the first time, 0 after)
+9. HyDE retrieval + four-way comparison (baseline, multi-query, HyDE, original + HyDE): side-by-side top 5, metrics table, q6 score check; uses `search_cache.json`, no generate_content calls
 
 ## 9. Next actions
 
-1. HyDE (7A.4): about 6 Gemini calls, cached to disk. Billing may need to be enabled first (section 10).
-2. Compare baseline vs multi-query vs HyDE (7A.5), reporting metrics with and without q4.
-3. Add more vague queries to the eval set, then add answer generation to v2.
-4. Then 7B reranking (test multi-query as a candidate generator for it), 7C pgvector, 7D FastAPI, 7E README, 7F Corrective RAG.
+1. Expand the eval set: add about 8-10 queries, mostly vague, labeled by reading the full chunks. Rewrite q4 at the same time, since its label is weak (section 7).
+2. Re-run the four-way comparison on the larger set. The original + HyDE lead rests on narrow RRF margins (section 5b), so it needs to hold up before it is chosen.
+3. Add answer generation (`system_instruction_rag`, `generate_rag_response`) to v2. It must be present before 7D.
+4. Then 7B reranking (test multi-query and original + HyDE as candidate generators for it), 7C pgvector, 7D FastAPI, 7E README, 7F Corrective RAG.
 
-**Done since the last version:** side-by-side diagnostic of baseline vs multi-query; weighting the original query in RRF was considered and dropped (section 5).
+**Done since the last version:** HyDE generation and the four-way comparison (section 5b).
 
 ## 10. Open decisions
 
-- Whether to enable billing on the Google project. HyDE, answer generation, reranking and Corrective RAG all make Gemini calls, and the free daily cap will slow every one of them.
+- Whether to enable billing on the Google project. The AI Studio usage page shows free-tier limits of 15 requests per minute and 500 per day for `gemini-3.5-flash-lite`, which is enough for HyDE and probably for answer generation. Revisit if reranking or Corrective RAG make many calls per query, or if a different model is needed.
 - Whether to allow LangGraph for 7F and a LlamaIndex comparison notebook.
 - Which README becomes the landing page at 7E.
 
 ## 11. Changelog
+
+**v2.3**
+
+- Added section 5b: HyDE design, the four-way comparison (baseline, multi-query, HyDE, original + HyDE) and a reading of it. Original + HyDE has the best MRR (0.800), but by hand arithmetic its lead rests on narrow RRF margins (about 0.0003 in q2). No method fixed q4.
+- Noted that HyDE cosine scores run higher than baseline scores and cannot be compared with them; a threshold still would not separate q6 from the weakest in-scope query.
+- Noted the possible model-memory advantage on a public manual.
+- Replaced the billing open decision with the verified free-tier limits for `gemini-3.5-flash-lite`.
+- Updated the intro and sections 1, 7, 8 and 9.
 
 **v2.2**
 
